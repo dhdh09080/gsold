@@ -74,7 +74,7 @@ if uploaded_file is not None:
             df['만_나이'] = df['생년월일'].apply(calculate_age)
             filtered_df = df[df['만_나이'] >= 63]
 
-            # ★ 성명 기준 가나다순 정렬 추가 ★
+            # 성명 기준 가나다순 정렬
             filtered_df = filtered_df.sort_values(by='성명').reset_index(drop=True)
 
         if filtered_df.empty:
@@ -127,9 +127,7 @@ if uploaded_file is not None:
             table.set_fontsize(12)
             table.scale(1, 2.0) 
             
-            today_str = datetime.now().strftime("%Y-%m-%d")
-            # 타이틀에도 명시적으로 폰트 적용
-            plt.title(f"만 63세 이상 고령 근로자 명단 ({today_str})", fontsize=18, fontfamily=font_name, pad=20)
+            # (수정됨) 제목 생성 코드 삭제 완료
 
             img_buf = io.BytesIO()
             plt.savefig(img_buf, format='png', bbox_inches='tight', dpi=300)
