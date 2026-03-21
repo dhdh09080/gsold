@@ -74,8 +74,8 @@ if uploaded_file is not None:
             df['만_나이'] = df['생년월일'].apply(calculate_age)
             filtered_df = df[df['만_나이'] >= 63]
 
-            # 성명 기준 가나다순 정렬
-            filtered_df = filtered_df.sort_values(by='성명').reset_index(drop=True)
+            # ★ 협력회사명 1순위, 성명 2순위로 가나다순 정렬 ★
+            filtered_df = filtered_df.sort_values(by=['협력회사명', '성명']).reset_index(drop=True)
 
         if filtered_df.empty:
             st.warning("만 63세 이상 근로자가 없습니다.")
@@ -127,8 +127,6 @@ if uploaded_file is not None:
             table.set_fontsize(12)
             table.scale(1, 2.0) 
             
-            # (수정됨) 제목 생성 코드 삭제 완료
-
             img_buf = io.BytesIO()
             plt.savefig(img_buf, format='png', bbox_inches='tight', dpi=300)
             img_buf.seek(0)
