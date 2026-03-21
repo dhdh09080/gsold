@@ -74,19 +74,19 @@ if uploaded_file is not None:
             df['만_나이'] = df['생년월일'].apply(calculate_age)
             filtered_df = df[df['만_나이'] >= 63]
 
-            # ★ 협력회사명 1순위, 성명 2순위로 가나다순 정렬 ★
+            # 협력회사명 1순위, 성명 2순위로 가나다순 정렬
             filtered_df = filtered_df.sort_values(by=['협력회사명', '성명']).reset_index(drop=True)
 
         if filtered_df.empty:
             st.warning("만 63세 이상 근로자가 없습니다.")
         else:
-            # 최종 출력용 데이터프레임 구성 (정렬된 상태로 No. 재부여)
+            # ★ 변경된 열 순서 및 이름 적용 ★
             final_df = pd.DataFrame({
-                'No.': range(1, len(filtered_df) + 1),
-                '성명': filtered_df['성명'],
-                '협력회사명': filtered_df['협력회사명'],
-                '직종': filtered_df['직종'],
-                '서명란': [''] * len(filtered_df)
+                'No.': range(1, len(filtered_df) + 1), # A열
+                '협력회사': filtered_df['협력회사명'],   # B열
+                '이름': filtered_df['성명'],           # C열
+                '공종': filtered_df['직종'],           # D열
+                '서명란': [''] * len(filtered_df)      # E열
             })
 
             st.subheader(f"✅ 추출된 명단 (총 {len(final_df)}명)")
@@ -109,7 +109,8 @@ if uploaded_file is not None:
             st.markdown("---")
             st.subheader("🖼️ 명단 이미지 (서명란 제외, A4 사이즈)")
             
-            img_df = final_df[['No.', '성명', '협력회사명', '직종']]
+            # 이미지용 데이터도 변경된 순서 반영
+            img_df = final_df[['No.', '협력회사', '이름', '공종']]
             
             a4_inch = (8.27, 11.69)
             fig, ax = plt.subplots(figsize=a4_inch, dpi=300) 
