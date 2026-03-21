@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
 import urllib.request
 import os
-import textwrap # ★ 줄바꿈을 위해 추가된 라이브러리 ★
+import textwrap
 
 # 1. 한글 폰트 확실하게 설정하기 (Streamlit Cloud 호환)
 @st.cache_resource
@@ -54,12 +54,10 @@ def calculate_age(ssn_str):
     except:
         return -1 
 
-# ★ 긴 업체명 줄바꿈을 위한 함수 ★
-def wrap_text_column(text, width=12):
-    """지정한 너비(글자 수)를 넘으면 줄바꿈을 삽입합니다."""
+def wrap_text_column(text, width=16):
+    """지정한 너비를 넘으면 줄바꿈을 삽입합니다."""
     if not isinstance(text, str):
         return text
-    # textwrap.wrap은 공백 기준으로 자르지만, 한국어는 공백이 적어 brutal split을 방지하기 위해 break_long_words=True를 사용
     return "\n".join(textwrap.wrap(text, width=width, break_long_words=True, break_on_hyphens=True))
 
 # 폰트 적용 실행
@@ -89,13 +87,13 @@ if uploaded_file is not None:
         if filtered_df.empty:
             st.warning("만 63세 이상 근로자가 없습니다.")
         else:
-            # 엑셀 다운로드용 데이터프레임 구성 (서명란 포함)
+            # 최종 출력용 데이터프레임 구성
             final_df = pd.DataFrame({
-                'No.': range(1, len(filtered_df) + 1), # A열
-                '협력회사': filtered_df['협력회사명'],   # B열
-                '이름': filtered_df['성명'],           # C열
-                '공종': filtered_df['직종'],           # D열
-                '서명란': [''] * len(filtered_df)      # E열
+                'No.': range(1, len(filtered_df) + 1),
+                '협력회사': filtered_df['협력회사명'],
+                '이름': filtered_df['성명'],
+                '공종': filtered_df['직종'],
+                '서명란': [''] * len(filtered_df)
             })
 
             st.subheader(f"✅ 추출된 명단 (총 {len(final_df)}명)")
@@ -118,42 +116,41 @@ if uploaded_file is not None:
             st.markdown("---")
             st.subheader("🖼️ 명단 이미지 (서명란 제외, A4 사이즈)")
             
-            # 이미지용 데이터 추출
             img_df = final_df[['No.', '협력회사', '이름', '공종']].copy()
             
-            # ★ 텍스트 줄바꿈 적용 ★
-            # 업체명 컬럼에 대해 한 줄에 약 12~13자 정도만 표시되도록 줄바꿈을 적용합니다. 
-            # 한글은 영문보다 너비가 넓으므로, width 값을 조정해 보면서 최적의 값을 찾으시면 됩니다.
-            img_df['협력회사'] = img_df['협력회사'].apply(lambda x: wrap_text_column(x, width=12))
+            # 협력회사 열이 넓어졌으므로 줄바꿈 기준을 16자로 늘림
+            img_df['협력회사'] = img_df['협력회사'].apply(lambda x: wrap_text_column(x, width=16))
             
             a4_inch = (8.27, 11.69)
             fig, ax = plt.subplots(figsize=a4_inch, dpi=300) 
             ax.axis('tight')
             ax.axis('off')
             
-            # 표 생성
+            # ★ 열 너비 비율 지정 (전체 합 = 1.0) ★
+            # No: 8%, 협력회사: 45%, 이름: 20%, 공종: 27%
+            col_widths = [0.08, 0.45, 0.20, 0.27]
+            
             table = ax.table(
                 cellText=img_df.values, 
                 colLabels=img_df.columns, 
+                colWidths=col_widths, # 열 너비 적용
                 cellLoc='center', 
                 loc='center'
             )
             
-            # 표 스타일 및 폰트 설정
             table.auto_set_font_size(False)
-            table.set_fontsize(11) # 조금 더 작게 설정하여 더 많은 내용을 담을 수 있게 함
+            table.set_fontsize(11)
 
-            # ★ 행 높이 동적 조정 ★
-            # 명단이 많을수록 행 높이를 줄여서 A4에 더 잘 맞춥니다.
+            # ★ 위아래 여백(셀 높이) 추가 확보 ★
             num_rows = len(img_df)
             if num_rows <= 10:
-                row_scale = 3.0
+                row_scale = 3.5
             elif num_rows <= 25:
-                row_scale = 2.3
+                row_scale = 2.8
             else:
-                row_scale = 1.8 # 25명 이상일 때 행 높이를 최소로
+                row_scale = 2.2 # 인원이 많아도 두 줄 텍스트가 잘리지 않도록 기본 높이 상향
             
-            table.scale(1, row_scale) # 셀 세로 크기 조정
+            table.scale(1, row_scale)
 
             img_buf = io.BytesIO()
             plt.savefig(img_buf, format='png', bbox_inches='tight', dpi=300)
