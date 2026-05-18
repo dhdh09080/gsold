@@ -56,11 +56,11 @@ with st.sidebar:
     st.info(
         "💡 **데이터 양식 안내**\n\n"
         "A열부터 시작해야 하며, 아래 열을 참조합니다.\n"
-        "- **B열**: 협력회사명\n"
-        "- **C열**: 직종\n"
-        "- **D열**: 성명\n"
-        "- **E열**: 국적\n"
-        "- **G열**: 생년월일 (YYMMDD-1)"
+        "- **D열**: 협력회사\n"
+        "- **E열**: 직종\n"
+        "- **F열**: 성명\n"
+        "- **I열**: 국적\n"
+        "- **K열**: 주민번호 (YYMMDD-1)"
     )
 
 # --- 3. 메인 화면 ---
@@ -72,15 +72,17 @@ if uploaded_file is None:
 else:
     try:
         with st.spinner("데이터를 분석하고 이미지를 생성하는 중입니다... 잠시만 기다려주세요!"):
+            # 변경된 열 인덱스 적용 (D=3, E=4, F=5, I=8, K=10)
             df = pd.read_excel(
                 uploaded_file, 
-                usecols=[1, 2, 3, 4, 6], 
-                names=['협력회사명', '직종', '성명', '국적', '생년월일']
+                usecols=[3, 4, 5, 8, 10], 
+                names=['협력회사명', '직종', '성명', '국적', '주민번호']
             )
             
             total_workers = len(df)
             
-            df['만_나이'] = df['생년월일'].apply(calculate_age)
+            # 생년월일 대신 주민번호 컬럼으로 나이 계산
+            df['만_나이'] = df['주민번호'].apply(calculate_age)
             filtered_df = df[df['만_나이'] >= 63]
             filtered_df = filtered_df.sort_values(by=['협력회사명', '성명']).reset_index(drop=True)
             extracted_workers = len(filtered_df)
