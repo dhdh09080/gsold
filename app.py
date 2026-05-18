@@ -151,7 +151,7 @@ else:
                 
                 # 파일명에 오늘 날짜 적용
                 st.download_button(
-                    label="📥 완벽하게 세팅된 엑셀 파일 다운로드",
+                    label="📥 엑셀 파일 다운로드",
                     data=output,
                     file_name=f"{today_str}_고령자 혈압 관리 명단.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
