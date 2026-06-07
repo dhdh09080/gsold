@@ -54,13 +54,13 @@ with st.sidebar:
     
     st.markdown("---")
     st.info(
-        "💡 **데이터 양식 안내**\n\n"
+        "💡 **데이터 양식 안내 (업데이트됨)**\n\n"
         "A열부터 시작해야 하며, 아래 열을 참조합니다.\n"
-        "- **D열**: 협력회사\n"
-        "- **E열**: 직종\n"
-        "- **F열**: 성명\n"
-        "- **I열**: 국적\n"
-        "- **K열**: 주민번호 (YYMMDD-1)"
+        "- **D열**: 협력회사명 (소속)\n"
+        "- **E열**: 직종 (공종)\n"
+        "- **F열**: 성명 (이름)\n"
+        "- **J열**: 국적\n"
+        "- **L열**: 생년월일 (YYMMDD-1)"
     )
 
 # --- 3. 메인 화면 ---
@@ -68,21 +68,21 @@ st.title("👷‍♂️ 만 63세 이상 고령 근로자 추출기")
 st.markdown("업로드한 엑셀 파일에서 만 63세 이상의 근로자를 자동으로 필터링하여 인쇄용 명단을 생성합니다.")
 
 if uploaded_file is None:
-    st.success("👈 좌측 사이드바에서 엑셀 파일을 업로드해 주세요!")
+    st.success("👈 좌측 사이드바에서 변경된 양식의 엑셀 파일을 업로드해 주세요!")
 else:
     try:
         with st.spinner("데이터를 분석하고 이미지를 생성하는 중입니다... 잠시만 기다려주세요!"):
-            # 변경된 열 인덱스 적용 (D=3, E=4, F=5, I=8, K=10)
+            # ★ 변경된 열(Column) 위치 반영 ★
+            # D(3), E(4), F(5), J(9), L(11)
             df = pd.read_excel(
                 uploaded_file, 
-                usecols=[3, 4, 5, 8, 10], 
-                names=['협력회사명', '직종', '성명', '국적', '주민번호']
+                usecols=[3, 4, 5, 9, 11], 
+                names=['협력회사명', '직종', '성명', '국적', '생년월일']
             )
             
             total_workers = len(df)
             
-            # 생년월일 대신 주민번호 컬럼으로 나이 계산
-            df['만_나이'] = df['주민번호'].apply(calculate_age)
+            df['만_나이'] = df['생년월일'].apply(calculate_age)
             filtered_df = df[df['만_나이'] >= 63]
             filtered_df = filtered_df.sort_values(by=['협력회사명', '성명']).reset_index(drop=True)
             extracted_workers = len(filtered_df)
@@ -104,7 +104,6 @@ else:
                 '서명란': [''] * len(filtered_df)
             })
 
-            # 오늘 날짜 가져오기 (YYYY-MM-DD 형식)
             today_str = datetime.now().strftime("%Y-%m-%d")
             
             # --- 탭 구성 ---
@@ -149,9 +148,8 @@ else:
                 
                 output.seek(0)
                 
-                # 파일명에 오늘 날짜 적용
                 st.download_button(
-                    label="📥 엑셀 파일 다운로드",
+                    label="📥 완벽하게 세팅된 엑셀 파일 다운로드",
                     data=output,
                     file_name=f"{today_str}_고령자 혈압 관리 명단.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -188,7 +186,6 @@ else:
                 
                 st.image(img_buf, use_container_width=True)
 
-                # 이미지 파일명에도 동일하게 오늘 날짜 적용
                 st.download_button(
                     label="📥 A4 명단 이미지 다운로드 (PNG)",
                     data=img_buf,
