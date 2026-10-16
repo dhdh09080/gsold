@@ -1,15 +1,17 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
+from zoneinfo import ZoneInfo
 import io
 import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
 import urllib.request
 import os
 import textwrap
+from excel_export import create_excel, measurement_date_label, measurement_title
 
 # --- 1. 기본 설정 및 함수 ---
-st.set_page_config(page_title="고령 근로자 명단 추출기", page_icon="👷‍♂️", layout="wide")
+st.set_page_config(page_title="고령자 혈압측정 명단", layout="wide")
 
 @st.cache_resource
 def set_korean_font():
@@ -49,13 +51,18 @@ font_name = set_korean_font()
 
 # --- 2. 사이드바 (좌측 메뉴) ---
 with st.sidebar:
-    st.header("📁 엑셀 파일 업로드")
-    uploaded_file = st.file_uploader("여기에 파일을 드래그 앤 드롭하세요.", type=['xlsx', 'xls'])
+    st.header("근로자 명단")
+    uploaded_file = st.file_uploader("엑셀 파일 선택", type=['xlsx', 'xls'])
+    st.subheader("혈압 측정 기간")
+    today = datetime.now(ZoneInfo('Asia/Seoul')).date()
+    start_date = st.date_input("시작일", value=today, format='YYYY.MM.DD')
+    end_date = st.date_input("종료일", value=today, format='YYYY.MM.DD')
+    st.caption("하루만 측정하면 시작일과 종료일을 같게 설정하세요. 여러 날이면 일자 칸에 측정한 날을 직접 적을 수 있습니다.")
     
     st.markdown("---")
     st.info(
-        "💡 **데이터 양식 안내 (업데이트됨)**\n\n"
-        "A열부터 시작해야 하며, 아래 열을 참조합니다.\n"
+        "**엑셀 양식 안내**\n\n"
+        "첫 행은 열 제목으로 사용합니다. A열부터 시작하는 원본 양식에서 다음 열을 읽습니다.\n"
         "- **D열**: 협력회사명 (소속)\n"
         "- **E열**: 직종 (공종)\n"
         "- **F열**: 성명 (이름)\n"
@@ -64,14 +71,21 @@ with st.sidebar:
     )
 
 # --- 3. 메인 화면 ---
-st.title("👷‍♂️ 만 63세 이상 고령 근로자 추출기")
-st.markdown("업로드한 엑셀 파일에서 만 63세 이상의 근로자를 자동으로 필터링하여 인쇄용 명단을 생성합니다.")
+st.title("고령자 혈압측정 명단")
+st.markdown("근로자 명단에서 만 63세 이상을 골라 혈압 측정용 명단을 만듭니다.")
+
+if end_date < start_date:
+    st.warning("종료일을 시작일과 같거나 이후 날짜로 설정해 주세요.")
+    st.stop()
+
+report_title = measurement_title(start_date, end_date)
+st.caption(f"명단 제목: {report_title}")
 
 if uploaded_file is None:
-    st.success("👈 좌측 사이드바에서 변경된 양식의 엑셀 파일을 업로드해 주세요!")
+    st.info("왼쪽에서 근로자 명단 파일과 혈압 측정 기간을 선택해 주세요.")
 else:
     try:
-        with st.spinner("데이터를 분석하고 이미지를 생성하는 중입니다... 잠시만 기다려주세요!"):
+        with st.spinner("명단을 정리하고 있습니다."):
             # ★ 변경된 열(Column) 위치 반영 ★
             # D(3), E(4), F(5), J(9), L(11)
             df = pd.read_excel(
@@ -89,9 +103,9 @@ else:
 
         # --- 대시보드 (요약 메트릭) ---
         st.markdown("---")
-        col1, col2, col3 = st.columns(3)
-        col1.metric(label="📋 전체 근로자 수", value=f"{total_workers} 명")
-        col2.metric(label="🚨 만 63세 이상 추출", value=f"{extracted_workers} 명", delta="대상자")
+        col1, col2 = st.columns(2)
+        col1.metric(label="전체 근로자", value=f"{total_workers} 명")
+        col2.metric(label="만 63세 이상", value=f"{extracted_workers} 명")
         
         if filtered_df.empty:
             st.warning("만 63세 이상 근로자가 없습니다.")
@@ -101,65 +115,33 @@ else:
                 '협력회사': filtered_df['협력회사명'],
                 '이름': filtered_df['성명'],
                 '공종': filtered_df['직종'],
+                '혈압잰 일자': [measurement_date_label(start_date, end_date)] * len(filtered_df),
+                '오늘의 혈압': ['     /     '] * len(filtered_df),
                 '서명란': [''] * len(filtered_df)
             })
-
-            today_str = datetime.now().strftime("%Y-%m-%d")
             
             # --- 탭 구성 ---
-            tab1, tab2 = st.tabs(["📊 엑셀 명단 확인 및 다운로드", "🖼️ A4 이미지 명단 (서명란 제외)"])
+            tab1, tab2 = st.tabs(["엑셀 명단", "이미지 명단"])
             
             # --- [TAB 1] 엑셀 화면 ---
             with tab1:
-                st.subheader("✅ 엑셀 데이터 미리보기")
-                st.dataframe(final_df, use_container_width=True, hide_index=True)
+                st.subheader(report_title)
+                st.dataframe(final_df, width='stretch', hide_index=True)
 
-                excel_df = final_df.copy()
-                empty_rows = pd.DataFrame([[''] * len(excel_df.columns)] * 10, columns=excel_df.columns)
-                excel_df = pd.concat([excel_df, empty_rows], ignore_index=True)
+                output = create_excel(final_df, start_date, end_date)
 
-                output = io.BytesIO()
-                with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                    excel_df.to_excel(writer, index=False, sheet_name='고령자명단')
-                    workbook = writer.book
-                    worksheet = writer.sheets['고령자명단']
-                    
-                    header_format = workbook.add_format({'bold': True, 'border': 1, 'align': 'center', 'valign': 'vcenter', 'bg_color': '#D9D9D9'})
-                    cell_format = workbook.add_format({'border': 1, 'align': 'center', 'valign': 'vcenter'})
-                    
-                    for col_num, value in enumerate(excel_df.columns.values):
-                        worksheet.write(0, col_num, value, header_format)
-                        
-                    for row_num in range(len(excel_df)):
-                        for col_num in range(len(excel_df.columns)):
-                            val = excel_df.iloc[row_num, col_num]
-                            if pd.isna(val): val = ''
-                            worksheet.write(row_num + 1, col_num, val, cell_format)
-                    
-                    worksheet.set_column('A:A', 6)
-                    worksheet.set_column('B:B', 25)
-                    worksheet.set_column('C:C', 12)
-                    worksheet.set_column('D:D', 16)
-                    worksheet.set_column('E:E', 30)
-                    
-                    worksheet.set_paper(9)
-                    worksheet.fit_to_pages(1, 0)
-                    worksheet.repeat_rows(0)
-                
-                output.seek(0)
-                
                 st.download_button(
-                    label="📥 완벽하게 세팅된 엑셀 파일 다운로드",
+                    label="엑셀 다운로드",
                     data=output,
-                    file_name=f"{today_str}_고령자 혈압 관리 명단.xlsx",
+                    file_name=f"{report_title}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     type="primary"
                 )
 
             # --- [TAB 2] 이미지 화면 ---
             with tab2:
-                st.subheader("🖼️ A4 인쇄용 이미지 미리보기")
-                st.caption("※ 서명란이 제외된 간략한 명단입니다. 우측 하단의 버튼을 눌러 저장하세요.")
+                st.subheader("인쇄용 이미지")
+                st.caption("이미지에는 협력회사, 이름, 공종만 표시됩니다. 혈압 기록용 서식은 엑셀로 내려받으세요.")
                 
                 img_df = final_df[['No.', '협력회사', '이름', '공종']].copy()
                 img_df['협력회사'] = img_df['협력회사'].apply(lambda x: wrap_text_column(x, width=16))
@@ -168,6 +150,7 @@ else:
                 fig, ax = plt.subplots(figsize=a4_inch, dpi=300) 
                 ax.axis('tight')
                 ax.axis('off')
+                ax.set_title(report_title, fontsize=18, pad=20)
                 
                 col_widths = [0.08, 0.45, 0.20, 0.27]
                 table = ax.table(cellText=img_df.values, colLabels=img_df.columns, colWidths=col_widths, cellLoc='center', loc='center')
@@ -182,16 +165,17 @@ else:
 
                 img_buf = io.BytesIO()
                 plt.savefig(img_buf, format='png', bbox_inches='tight', dpi=300)
+                plt.close(fig)
                 img_buf.seek(0)
                 
-                st.image(img_buf, use_container_width=True)
+                st.image(img_buf, width='stretch')
 
                 st.download_button(
-                    label="📥 A4 명단 이미지 다운로드 (PNG)",
+                    label="이미지 다운로드 (PNG)",
                     data=img_buf,
-                    file_name=f"{today_str}_고령자 혈압 관리 명단.png",
+                    file_name=f"{report_title}.png",
                     mime="image/png"
                 )
 
     except Exception as e:
-        st.error(f"⚠️ 엑셀 파일을 읽는 중 오류가 발생했습니다. 양식이 맞는지 확인해주세요.\n\n상세 오류: {e}")
+        st.error(f"명단을 만들지 못했습니다. 파일 형식과 열 위치를 확인해 주세요.\n\n오류 내용: {e}")
