@@ -3,12 +3,11 @@ import pandas as pd
 from datetime import datetime
 from zoneinfo import ZoneInfo
 import io
-import matplotlib.pyplot as plt
-import matplotlib.font_manager as fm
 import urllib.request
 import os
-import textwrap
 from excel_export import create_excel, measurement_date_label, measurement_title
+from image_export import create_image
+from history_store import list_reports, load_report, save_report
 
 # --- 1. 기본 설정 및 함수 ---
 st.set_page_config(page_title="고령자 혈압측정 명단", layout="wide")
@@ -21,14 +20,7 @@ def set_korean_font():
     if not os.path.exists(font_path):
         urllib.request.urlretrieve(font_url, font_path)
         
-    fm.fontManager.addfont(font_path)
-    font_prop = fm.FontProperties(fname=font_path)
-    font_name = font_prop.get_name()
-    
-    plt.rc('font', family=font_name)
-    plt.rcParams['axes.unicode_minus'] = False
-    
-    return font_name
+    return font_path
 
 def calculate_age(ssn_str):
     try:
@@ -43,11 +35,56 @@ def calculate_age(ssn_str):
     except:
         return -1 
 
-def wrap_text_column(text, width=16):
-    if not isinstance(text, str): return text
-    return "\n".join(textwrap.wrap(text, width=width, break_long_words=True, break_on_hyphens=True))
+font_path = set_korean_font()
 
-font_name = set_korean_font()
+
+def show_report(roster, title, excel, png):
+    tab1, tab2 = st.tabs(["엑셀 명단", "이미지 명단"])
+    with tab1:
+        st.subheader(title)
+        st.dataframe(roster, width='stretch', hide_index=True)
+        st.download_button(
+            label="엑셀 다운로드", data=excel, file_name=f"{title}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            type="primary",
+        )
+    with tab2:
+        st.subheader("인쇄용 이미지")
+        st.caption("이미지에는 협력회사, 이름, 공종이 표시됩니다. 혈압 기록용 서식은 엑셀로 내려받으세요.")
+        st.image(png, width='stretch')
+        st.download_button(label="이미지 다운로드 (PNG)", data=png,
+                           file_name=f"{title}.png", mime="image/png")
+
+
+st.title("고령자 혈압측정 명단")
+st.markdown("근로자 명단에서 만 63세 이상을 골라 혈압 측정용 명단을 만듭니다.")
+mode = st.sidebar.radio("메뉴", ["명단 만들기", "생성 기록"])
+if mode == "생성 기록":
+    st.subheader("생성 기록")
+    st.caption("생성 당시의 명단과 파일을 다시 확인할 수 있습니다.")
+    try:
+        reports = list_reports()
+        if not reports:
+            st.info("아직 생성한 명단이 없습니다. ‘명단 만들기’에서 엑셀 파일을 올려 주세요.")
+        else:
+            records = {report['id']: report for report in reports}
+            selected = st.selectbox(
+                "기록 선택", options=list(records),
+                format_func=lambda key: records[key]['label'] + " · " +
+                datetime.fromisoformat(records[key]['created_at']).strftime('%m.%d %H:%M:%S'),
+            )
+            report = load_report(selected)
+            if report is None:
+                st.warning("기록을 찾을 수 없습니다. 목록을 새로고침해 주세요.")
+            else:
+                roster = pd.read_json(io.StringIO(report['roster']), orient='split', dtype=False)
+                created = datetime.fromisoformat(report['created_at']).strftime('%Y.%m.%d %H:%M')
+                st.caption(f"생성일: {created} · 대상자: {len(roster)}명")
+                show_report(roster, report['title'], report['excel'], report['png'])
+    except Exception as e:
+        st.error(f"생성 기록을 불러오지 못했습니다.\n\n오류 내용: {e}")
+    st.sidebar.caption("기록은 현재 서버에 저장됩니다. 서버 교체나 재배포 시 초기화될 수 있으니 필요한 파일은 내려받아 보관해 주세요.")
+    st.stop()
 
 # --- 2. 사이드바 (좌측 메뉴) ---
 with st.sidebar:
@@ -71,9 +108,6 @@ with st.sidebar:
     )
 
 # --- 3. 메인 화면 ---
-st.title("고령자 혈압측정 명단")
-st.markdown("근로자 명단에서 만 63세 이상을 골라 혈압 측정용 명단을 만듭니다.")
-
 if end_date < start_date:
     st.warning("종료일을 시작일과 같거나 이후 날짜로 설정해 주세요.")
     st.stop()
@@ -120,62 +154,15 @@ else:
                 '서명란': [''] * len(filtered_df)
             })
             
-            # --- 탭 구성 ---
-            tab1, tab2 = st.tabs(["엑셀 명단", "이미지 명단"])
-            
-            # --- [TAB 1] 엑셀 화면 ---
-            with tab1:
-                st.subheader(report_title)
-                st.dataframe(final_df, width='stretch', hide_index=True)
-
-                output = create_excel(final_df, start_date, end_date)
-
-                st.download_button(
-                    label="엑셀 다운로드",
-                    data=output,
-                    file_name=f"{report_title}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    type="primary"
-                )
-
-            # --- [TAB 2] 이미지 화면 ---
-            with tab2:
-                st.subheader("인쇄용 이미지")
-                st.caption("이미지에는 협력회사, 이름, 공종만 표시됩니다. 혈압 기록용 서식은 엑셀로 내려받으세요.")
-                
-                img_df = final_df[['No.', '협력회사', '이름', '공종']].copy()
-                img_df['협력회사'] = img_df['협력회사'].apply(lambda x: wrap_text_column(x, width=16))
-                
-                a4_inch = (8.27, 11.69)
-                fig, ax = plt.subplots(figsize=a4_inch, dpi=300) 
-                ax.axis('tight')
-                ax.axis('off')
-                ax.set_title(report_title, fontsize=18, pad=20)
-                
-                col_widths = [0.08, 0.45, 0.20, 0.27]
-                table = ax.table(cellText=img_df.values, colLabels=img_df.columns, colWidths=col_widths, cellLoc='center', loc='center')
-                table.auto_set_font_size(False)
-                table.set_fontsize(11)
-
-                num_rows = len(img_df)
-                if num_rows <= 10: row_scale = 3.5
-                elif num_rows <= 25: row_scale = 2.8
-                else: row_scale = 2.2 
-                table.scale(1, row_scale)
-
-                img_buf = io.BytesIO()
-                plt.savefig(img_buf, format='png', bbox_inches='tight', dpi=300)
-                plt.close(fig)
-                img_buf.seek(0)
-                
-                st.image(img_buf, width='stretch')
-
-                st.download_button(
-                    label="이미지 다운로드 (PNG)",
-                    data=img_buf,
-                    file_name=f"{report_title}.png",
-                    mime="image/png"
-                )
+            output = create_excel(final_df, start_date, end_date)
+            image = create_image(final_df, report_title, font_path)
+            try:
+                save_report(final_df, start_date, end_date, report_title, total_workers,
+                            output, image)
+                st.caption("생성 기록에 저장했습니다. 왼쪽 ‘생성 기록’에서 다시 볼 수 있습니다.")
+            except Exception as e:
+                st.warning(f"파일은 생성했지만 기록을 저장하지 못했습니다. 필요한 파일을 내려받아 주세요. ({e})")
+            show_report(final_df, report_title, output, image)
 
     except Exception as e:
         st.error(f"명단을 만들지 못했습니다. 파일 형식과 열 위치를 확인해 주세요.\n\n오류 내용: {e}")
