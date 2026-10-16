@@ -6,9 +6,10 @@ import urllib.request
 import os
 from excel_export import create_excel, measurement_date_label, measurement_title
 from image_export import create_image
+from worker_filter import select_high_pressure_workers
 
 # --- 1. 기본 설정 및 함수 ---
-st.set_page_config(page_title="고령자 혈압측정 명단", layout="wide")
+st.set_page_config(page_title="근로자 혈압측정 명단", layout="wide")
 
 @st.cache_resource
 def set_korean_font():
@@ -36,7 +37,7 @@ def calculate_age(ssn_str):
 font_path = set_korean_font()
 
 
-def show_report(roster, title, excel, png):
+def show_report(roster, title, excel, png, key):
     tab1, tab2 = st.tabs(["엑셀 명단", "이미지 명단"])
     with tab1:
         st.subheader(title)
@@ -44,18 +45,18 @@ def show_report(roster, title, excel, png):
         st.download_button(
             label="엑셀 다운로드", data=excel, file_name=f"{title}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            type="primary",
+            type="primary", key=f"{key}_excel",
         )
     with tab2:
         st.subheader("인쇄용 이미지")
         st.caption("이미지에는 협력회사, 이름, 공종이 표시됩니다. 혈압 기록용 서식은 엑셀로 내려받으세요.")
         st.image(png, width='stretch')
         st.download_button(label="이미지 다운로드 (PNG)", data=png,
-                           file_name=f"{title}.png", mime="image/png")
+                           file_name=f"{title}.png", mime="image/png", key=f"{key}_png")
 
 
-st.title("고령자 혈압측정 명단")
-st.markdown("근로자 명단에서 만 63세 이상을 골라 혈압 측정용 명단을 만듭니다.")
+st.title("근로자 혈압측정 명단")
+st.markdown("고령자와 고혈압 재측정 대상자를 구분해 혈압 측정용 명단을 만듭니다.")
 # --- 2. 사이드바 (좌측 메뉴) ---
 with st.sidebar:
     st.header("근로자 명단")
@@ -74,7 +75,8 @@ with st.sidebar:
         "- **E열**: 직종 (공종)\n"
         "- **F열**: 성명 (이름)\n"
         "- **J열**: 국적\n"
-        "- **L열**: 생년월일 (YYMMDD-1)"
+        "- **L열**: 생년월일 (YYMMDD-1)\n"
+        "- **Q열**: 최종 혈압 측정일과 결과 (예: 2026.10.16(150/100))"
     )
 
 # --- 3. 메인 화면 ---
@@ -82,22 +84,21 @@ if end_date < start_date:
     st.warning("종료일을 시작일과 같거나 이후 날짜로 설정해 주세요.")
     st.stop()
 
-report_title = measurement_title(start_date, end_date)
-st.caption(f"명단 제목: {report_title}")
+st.caption(f"측정 기간: {start_date:%Y.%m.%d} ~ {end_date:%Y.%m.%d}")
 
 if uploaded_file is None:
     st.info("왼쪽에서 근로자 명단 파일과 혈압 측정 기간을 선택해 주세요.")
 else:
     try:
         with st.spinner("명단을 정리하고 있습니다."):
-            # ★ 변경된 열(Column) 위치 반영 ★
-            # D(3), E(4), F(5), J(9), L(11)
-            df = pd.read_excel(
-                uploaded_file, 
-                usecols=[3, 4, 5, 9, 11], 
-                names=['협력회사명', '직종', '성명', '국적', '생년월일']
-            )
-            
+            source = pd.read_excel(uploaded_file)
+            if source.shape[1] < 12:
+                raise ValueError("L열까지 포함된 원본 엑셀 파일을 선택해 주세요.")
+            df = source.iloc[:, [3, 4, 5, 9, 11]].copy()
+            df.columns = ['협력회사명', '직종', '성명', '국적', '생년월일']
+            has_pressure_column = source.shape[1] >= 17
+            df['최종혈압결과'] = source.iloc[:, 16] if has_pressure_column else None
+
             total_workers = len(df)
             
             df['만_나이'] = df['생년월일'].apply(calculate_age)
@@ -105,28 +106,47 @@ else:
             filtered_df = filtered_df.sort_values(by=['협력회사명', '성명']).reset_index(drop=True)
             extracted_workers = len(filtered_df)
 
-        # --- 대시보드 (요약 메트릭) ---
-        st.markdown("---")
-        col1, col2 = st.columns(2)
+        high_df, readings = select_high_pressure_workers(df)
+        col1, col2, col3 = st.columns(3)
         col1.metric(label="전체 근로자", value=f"{total_workers} 명")
         col2.metric(label="만 63세 이상", value=f"{extracted_workers} 명")
-        
-        if filtered_df.empty:
-            st.warning("만 63세 이상 근로자가 없습니다.")
-        else:
-            final_df = pd.DataFrame({
-                'No.': range(1, len(filtered_df) + 1),
-                '협력회사': filtered_df['협력회사명'],
-                '이름': filtered_df['성명'],
-                '공종': filtered_df['직종'],
-                '혈압잰 일자': [measurement_date_label(start_date, end_date)] * len(filtered_df),
-                '오늘의 혈압': ['     /     '] * len(filtered_df),
-                '서명란': [''] * len(filtered_df)
-            })
-            
-            output = create_excel(final_df, start_date, end_date)
-            image = create_image(final_df, report_title, font_path)
-            show_report(final_df, report_title, output, image)
+        col3.metric(label="고혈압 재측정 대상", value=f"{len(high_df)} 명")
+
+        older_tab, pressure_tab = st.tabs(["고령자 혈압측정", "고혈압 근로자 혈압측정"])
+        for tab, workers, group, key in [
+            (older_tab, filtered_df, '고령자', 'older'),
+            (pressure_tab, high_df, '고혈압 근로자', 'pressure'),
+        ]:
+            with tab:
+                if key == 'pressure':
+                    st.caption("Q열의 최종 혈압이 수축기 150 이상 또는 이완기 100 이상인 근로자입니다. 만 63세 이상은 고령자 명단에만 포함합니다.")
+                    if not has_pressure_column:
+                        st.warning("Q열이 없어 고혈압 대상자를 확인할 수 없습니다. Q열까지 포함된 원본 파일을 선택해 주세요.")
+                        continue
+                    eligible = df['만_나이'].between(0, 62)
+                    unreadable = int((eligible & readings.isna()).sum())
+                    if unreadable:
+                        st.warning(f"만 63세 미만 중 {unreadable}명은 Q열의 혈압값이 없거나 형식을 확인할 수 없어 제외했습니다.")
+                    unknown_age = int((df['만_나이'] < 0).sum())
+                    if unknown_age:
+                        st.warning(f"생년월일을 확인할 수 없는 {unknown_age}명은 고령자 제외 여부를 판단할 수 없어 제외했습니다.")
+                if workers.empty:
+                    st.info("해당하는 근로자가 없습니다.")
+                    continue
+                final_df = pd.DataFrame({
+                    'No.': range(1, len(workers) + 1),
+                    '협력회사': workers['협력회사명'],
+                    '이름': workers['성명'],
+                    '공종': workers['직종'],
+                    '혈압잰 일자': [measurement_date_label(start_date, end_date)] * len(workers),
+                    '오늘의 혈압': ['     /     '] * len(workers),
+                    '고혈압 복용 여부': ['□예  □아니오'] * len(workers),
+                    '서명란': [''] * len(workers),
+                })
+                title = measurement_title(start_date, end_date, group)
+                output = create_excel(final_df, start_date, end_date, group)
+                image = create_image(final_df, title, font_path)
+                show_report(final_df, title, output, image, key)
 
     except Exception as e:
         st.error(f"명단을 만들지 못했습니다. 파일 형식과 열 위치를 확인해 주세요.\n\n오류 내용: {e}")

@@ -5,14 +5,14 @@ import io
 import pandas as pd
 
 
-def measurement_title(start, end):
+def measurement_title(start, end, group='고령자'):
     if end < start:
         raise ValueError('종료일은 시작일과 같거나 늦어야 합니다.')
     period = start.strftime('%Y.%m.%d')
     if start != end:
         end_format = '%m.%d' if start.year == end.year else '%Y.%m.%d'
         period += '~' + end.strftime(end_format)
-    return f'{period} 고령자 혈압측정'
+    return f'{period} {group} 혈압측정'
 
 
 def measurement_date_label(start, end):
@@ -23,15 +23,17 @@ def measurement_date_label(start, end):
     return '        년     월     일'
 
 
-def create_excel(roster, start, end):
-    title = measurement_title(start, end)
+def create_excel(roster, start, end, group='고령자'):
+    title = measurement_title(start, end, group)
     rows = roster.copy()
     blank_rows = pd.DataFrame([[''] * len(rows.columns)] * 10, columns=rows.columns)
+    if '고혈압 복용 여부' in rows.columns:
+        blank_rows['고혈압 복용 여부'] = '□예  □아니오'
     rows = pd.concat([rows, blank_rows], ignore_index=True)
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         workbook = writer.book
-        worksheet = workbook.add_worksheet('고령자명단')
+        worksheet = workbook.add_worksheet(f'{group}명단')
         base = {'font_name': '맑은 고딕', 'font_size': 12, 'border': 1,
                 'align': 'center', 'valign': 'vcenter'}
         title_format = workbook.add_format({**base, 'font_size': 18, 'bold': True})
@@ -40,10 +42,11 @@ def create_excel(roster, start, end):
         date_format = workbook.add_format({**base, 'bg_color': '#FCE4D6'})
         pressure_format = workbook.add_format({**base, 'bg_color': '#FFFFCC'})
         signature_format = workbook.add_format({**base, 'bg_color': '#EBF1DE'})
-        formats = {4: date_format, 5: pressure_format, 6: signature_format}
+        formats = {'혈압잰 일자': date_format, '오늘의 혈압': pressure_format,
+                   '서명란': signature_format}
 
         worksheet.set_default_row(25)
-        worksheet.merge_range('A1:G1', title, title_format)
+        worksheet.merge_range(0, 0, 0, len(rows.columns) - 1, title, title_format)
         worksheet.set_row(0, 25)
         worksheet.set_row(1, 25)
         for col, name in enumerate(rows.columns):
@@ -51,7 +54,7 @@ def create_excel(roster, start, end):
         for row_index, row in enumerate(rows.itertuples(index=False, name=None), start=2):
             worksheet.set_row(row_index, 25)
             for col, value in enumerate(row):
-                fmt = formats.get(col, cell_format)
+                fmt = formats.get(rows.columns[col], cell_format)
                 if pd.isna(value) or value == '':
                     worksheet.write_blank(row_index, col, None, fmt)
                 elif isinstance(value, str):
@@ -59,13 +62,14 @@ def create_excel(roster, start, end):
                 else:
                     worksheet.write(row_index, col, value, fmt)
 
-        for column, width in [('A:A', 6), ('B:B', 25), ('C:C', 12), ('D:D', 18),
-                              ('E:E', 24), ('F:F', 19), ('G:G', 16)]:
-            worksheet.set_column(column, width)
+        widths = {'No.': 6, '협력회사': 25, '이름': 12, '공종': 18, '혈압잰 일자': 24,
+                  '오늘의 혈압': 19, '고혈압 복용 여부': 22, '서명란': 16}
+        for col, name in enumerate(rows.columns):
+            worksheet.set_column(col, col, widths.get(name, 16))
         worksheet.set_paper(9)
         worksheet.fit_to_pages(1, 0)
         worksheet.repeat_rows(0, 1)
-        worksheet.print_area(0, 0, len(rows) + 1, 6)
+        worksheet.print_area(0, 0, len(rows) + 1, len(rows.columns) - 1)
         worksheet.center_horizontally()
     output.seek(0)
     return output

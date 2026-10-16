@@ -18,11 +18,11 @@ class ExcelExportTests(unittest.TestCase):
         roster = pd.DataFrame({
             'No.': [1], '협력회사': ['테스트회사'], '이름': ['테스트'], '공종': ['목공'],
             '혈압잰 일자': [measurement_date_label(start, end)],
-            '오늘의 혈압': ['     /     '], '서명란': [''],
+            '오늘의 혈압': ['     /     '], '고혈압 복용 여부': ['□예  □아니오'], '서명란': [''],
         })
         sheet = openpyxl.load_workbook(create_excel(roster, start, end)).active
         self.assertEqual(sheet['A1'].value, '2026.10.19~10.20 고령자 혈압측정')
-        self.assertEqual(str(sheet.merged_cells), 'A1:G1')
+        self.assertEqual(str(sheet.merged_cells), 'A1:H1')
         self.assertEqual([c.value for c in sheet[2]], list(roster.columns))
         self.assertEqual(sheet['E3'].value, '2026년 10월      일')
         self.assertEqual(sheet['F3'].value, '     /     ')
@@ -33,12 +33,14 @@ class ExcelExportTests(unittest.TestCase):
         self.assertEqual(sheet.page_setup.fitToHeight, 0)
         self.assertTrue(sheet.sheet_properties.pageSetUpPr.fitToPage)
         self.assertEqual(sheet['A1'].font.sz, 18)
-        for row in sheet.iter_rows(min_row=2, max_row=13, max_col=7):
+        for row in sheet.iter_rows(min_row=2, max_row=13, max_col=8):
             for cell in row:
                 self.assertEqual(cell.font.sz, 12)
         for row in range(1, 14):
             self.assertEqual(sheet.row_dimensions[row].height, 25)
-        self.assertEqual(sheet['G13'].border.bottom.style, 'thin')
+        self.assertEqual(sheet['H13'].border.bottom.style, 'thin')
+        self.assertEqual(sheet['G3'].value, '□예  □아니오')
+        self.assertEqual(sheet['G13'].value, '□예  □아니오')
 
     def test_single_day_and_month_year_boundaries(self):
         day = date(2026, 10, 19)
@@ -77,7 +79,7 @@ class ExcelExportTests(unittest.TestCase):
             app.run(timeout=60)
         self.assertFalse(app.exception)
         self.assertFalse(app.error)
-        self.assertEqual([metric.value for metric in app.metric], ['2 명', '1 명'])
+        self.assertEqual([metric.value for metric in app.metric], ['2 명', '1 명', '0 명'])
         self.assertEqual(app.dataframe[0].value['이름'].tolist(), ['고령근로자'])
         name = '2026.10.19~10.20 고령자 혈압측정'
         sheet = openpyxl.load_workbook(io.BytesIO(downloads[name + '.xlsx'])).active
