@@ -1,6 +1,5 @@
 import io
 import unittest
-import tempfile
 from datetime import date
 from pathlib import Path
 from unittest.mock import patch
@@ -14,17 +13,6 @@ from excel_export import create_excel, measurement_date_label, measurement_title
 
 
 class ExcelExportTests(unittest.TestCase):
-    def setUp(self):
-        self.directory = tempfile.TemporaryDirectory()
-        self.environment = patch.dict('os.environ', {
-            'GSOLD_HISTORY_DB': str(Path(self.directory.name) / 'history.sqlite3'),
-        })
-        self.environment.start()
-
-    def tearDown(self):
-        self.environment.stop()
-        self.directory.cleanup()
-
     def test_print_layout_and_content(self):
         start, end = date(2026, 10, 19), date(2026, 10, 20)
         roster = pd.DataFrame({

@@ -2,12 +2,10 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 from zoneinfo import ZoneInfo
-import io
 import urllib.request
 import os
 from excel_export import create_excel, measurement_date_label, measurement_title
 from image_export import create_image
-from history_store import list_reports, load_report, save_report
 
 # --- 1. 기본 설정 및 함수 ---
 st.set_page_config(page_title="고령자 혈압측정 명단", layout="wide")
@@ -58,34 +56,6 @@ def show_report(roster, title, excel, png):
 
 st.title("고령자 혈압측정 명단")
 st.markdown("근로자 명단에서 만 63세 이상을 골라 혈압 측정용 명단을 만듭니다.")
-mode = st.sidebar.radio("메뉴", ["명단 만들기", "생성 기록"])
-if mode == "생성 기록":
-    st.subheader("생성 기록")
-    st.caption("생성 당시의 명단과 파일을 다시 확인할 수 있습니다.")
-    try:
-        reports = list_reports()
-        if not reports:
-            st.info("아직 생성한 명단이 없습니다. ‘명단 만들기’에서 엑셀 파일을 올려 주세요.")
-        else:
-            records = {report['id']: report for report in reports}
-            selected = st.selectbox(
-                "기록 선택", options=list(records),
-                format_func=lambda key: records[key]['label'] + " · " +
-                datetime.fromisoformat(records[key]['created_at']).strftime('%m.%d %H:%M:%S'),
-            )
-            report = load_report(selected)
-            if report is None:
-                st.warning("기록을 찾을 수 없습니다. 목록을 새로고침해 주세요.")
-            else:
-                roster = pd.read_json(io.StringIO(report['roster']), orient='split', dtype=False)
-                created = datetime.fromisoformat(report['created_at']).strftime('%Y.%m.%d %H:%M')
-                st.caption(f"생성일: {created} · 대상자: {len(roster)}명")
-                show_report(roster, report['title'], report['excel'], report['png'])
-    except Exception as e:
-        st.error(f"생성 기록을 불러오지 못했습니다.\n\n오류 내용: {e}")
-    st.sidebar.caption("기록은 현재 서버에 저장됩니다. 서버 교체나 재배포 시 초기화될 수 있으니 필요한 파일은 내려받아 보관해 주세요.")
-    st.stop()
-
 # --- 2. 사이드바 (좌측 메뉴) ---
 with st.sidebar:
     st.header("근로자 명단")
@@ -156,12 +126,6 @@ else:
             
             output = create_excel(final_df, start_date, end_date)
             image = create_image(final_df, report_title, font_path)
-            try:
-                save_report(final_df, start_date, end_date, report_title, total_workers,
-                            output, image)
-                st.caption("생성 기록에 저장했습니다. 왼쪽 ‘생성 기록’에서 다시 볼 수 있습니다.")
-            except Exception as e:
-                st.warning(f"파일은 생성했지만 기록을 저장하지 못했습니다. 필요한 파일을 내려받아 주세요. ({e})")
             show_report(final_df, report_title, output, image)
 
     except Exception as e:
